@@ -1,4 +1,3 @@
-# Copyright (c) 2015-present, Facebook, Inc.
 # All rights reserved.
 import os
 import json
@@ -61,6 +60,10 @@ def build_dataset(is_train, args):
         nb_classes = 100
     elif args.data_set == 'IMNET':
         root = os.path.join(args.data_path, 'train' if is_train else 'val')
+        dataset = datasets.ImageFolder(root, transform=transform)
+        nb_classes = 1000
+    elif args.data_set == "wds":
+        root = os.path.join(args.val_data_path)
         dataset = datasets.ImageFolder(root, transform=transform)
         nb_classes = 1000
     elif args.data_set == 'INAT':

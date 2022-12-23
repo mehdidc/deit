@@ -28,6 +28,19 @@ import models_v2
 
 import utils
 
+def str2bool(v):
+    """
+    Converts string to bool type; enables command line 
+    arguments in the format of '--arg1 true --arg2 false'
+    """
+    if isinstance(v, bool):
+        return v
+    if v.lower() in ('yes', 'true', 't', 'y', '1'):
+        return True
+    elif v.lower() in ('no', 'false', 'f', 'n', '0'):
+        return False
+    else:
+        raise argparse.ArgumentTypeError('Boolean value expected.')
 
 def get_args_parser():
     parser = argparse.ArgumentParser('DeiT training and evaluation script', add_help=False)
@@ -153,7 +166,9 @@ def get_args_parser():
     # Dataset parameters
     parser.add_argument('--data-path', default='/datasets01/imagenet_full_size/061417/', type=str,
                         help='dataset path')
-    parser.add_argument('--data-set', default='IMNET', choices=['CIFAR', 'IMNET', 'INAT', 'INAT19'],
+    parser.add_argument('--val-data-path', default='/datasets01/imagenet_full_size/061417/', type=str,
+                        help='dataset path')
+    parser.add_argument('--data-set', default='IMNET', choices=['CIFAR', 'IMNET', 'INAT', 'INAT19', 'wds'],
                         type=str, help='Image Net dataset path')
     parser.add_argument('--inat-category', default='name',
                         choices=['kingdom', 'phylum', 'class', 'order', 'supercategory', 'family', 'genus', 'name'],
@@ -181,7 +196,30 @@ def get_args_parser():
     parser.add_argument('--world_size', default=1, type=int,
                         help='number of distributed processes')
     parser.add_argument('--dist_url', default='env://', help='url used to set up distributed training')
+    parser.add_argument('--resampled', type=str2bool, default=False)
+    parser.add_argument('--num_samples_per_epoch', default=0, type=int)
+    parser.add_argument('--rename', default="image.jpg;image.png")
+    parser.add_argument('--fields', default="image,class.cls")
+    parser.add_argument('--nb_classes', default=1000, type=int,
+                        help='number of the classification types')
     return parser
+
+class DataLoaderWithLen:
+    
+
+    def __init__(self, dataloader, datainfo, nb_batches):
+        self.dataloader = dataloader
+        self.nb_batches = nb_batches
+        self.datainfo = datainfo
+
+    def __iter__(self):
+        yield from self.dataloader
+
+    def __len__(self):
+        return self.nb_batches
+    
+    def set_epoch(self, epoch):
+        self.datainfo.set_epoch(epoch)
 
 
 def main(args):
@@ -202,20 +240,35 @@ def main(args):
 
     cudnn.benchmark = True
 
-    dataset_train, args.nb_classes = build_dataset(is_train=True, args=args)
+    if args.data_set != "wds":
+        dataset_train, args.nb_classes = build_dataset(is_train=True, args=args)
     dataset_val, _ = build_dataset(is_train=False, args=args)
 
-    if True:  # args.distributed:
-        num_tasks = utils.get_world_size()
-        global_rank = utils.get_rank()
-        if args.repeated_aug:
-            sampler_train = RASampler(
-                dataset_train, num_replicas=num_tasks, rank=global_rank, shuffle=True
-            )
+    if args.data_set != "wds":
+        if True:  # args.distributed:
+            num_tasks = utils.get_world_size()
+            global_rank = utils.get_rank()
+            if args.repeated_aug:
+                sampler_train = RASampler(
+                    dataset_train, num_replicas=num_tasks, rank=global_rank, shuffle=True
+                )
+            else:
+                sampler_train = torch.utils.data.DistributedSampler(
+                    dataset_train, num_replicas=num_tasks, rank=global_rank, shuffle=True
+                )
+            if args.dist_eval:
+                if len(dataset_val) % num_tasks != 0:
+                    print('Warning: Enabling distributed evaluation with an eval dataset not divisible by process number. '
+                          'This will slightly alter validation results as extra duplicate entries are added to achieve '
+                          'equal num of samples per-process.')
+                sampler_val = torch.utils.data.DistributedSampler(
+                    dataset_val, num_replicas=num_tasks, rank=global_rank, shuffle=False)
+            else:
+                sampler_val = torch.utils.data.SequentialSampler(dataset_val)
         else:
-            sampler_train = torch.utils.data.DistributedSampler(
-                dataset_train, num_replicas=num_tasks, rank=global_rank, shuffle=True
-            )
+            sampler_train = torch.utils.data.RandomSampler(dataset_train)
+            sampler_val = torch.utils.data.SequentialSampler(dataset_val)
+    else:
         if args.dist_eval:
             if len(dataset_val) % num_tasks != 0:
                 print('Warning: Enabling distributed evaluation with an eval dataset not divisible by process number. '
@@ -225,20 +278,36 @@ def main(args):
                 dataset_val, num_replicas=num_tasks, rank=global_rank, shuffle=False)
         else:
             sampler_val = torch.utils.data.SequentialSampler(dataset_val)
+    if args.data_set != "wds":
+        data_loader_train = torch.utils.data.DataLoader(
+            dataset_train, sampler=sampler_train,
+            batch_size=args.batch_size,
+            num_workers=args.num_workers,
+            pin_memory=args.pin_mem,
+            drop_last=True,
+        )
+        if args.ThreeAugment:
+            data_loader_train.dataset.transform = new_data_aug_generator(args)
     else:
-        sampler_train = torch.utils.data.RandomSampler(dataset_train)
-        sampler_val = torch.utils.data.SequentialSampler(dataset_val)
-
-    data_loader_train = torch.utils.data.DataLoader(
-        dataset_train, sampler=sampler_train,
-        batch_size=args.batch_size,
-        num_workers=args.num_workers,
-        pin_memory=args.pin_mem,
-        drop_last=True,
-    )
-    if args.ThreeAugment:
-        data_loader_train.dataset.transform = new_data_aug_generator(args)
-
+        import wds
+        from datasets import build_transform
+        class wds_args:
+            distributed = args.distributed
+            batch_size = args.batch_size
+            train_data = args.data_path
+            workers = args.num_workers
+            world_size = utils.get_world_size()
+            rank = utils.get_rank()
+            train_num_samples = args.num_samples_per_epoch
+            resampled = args.resampled
+            seed = args.seed
+            rename = args.rename
+            fields = args.fields.split(",")
+        args.num_batches = args.num_samples_per_epoch // (args.batch_size * wds_args.world_size)
+        transform = build_transform(True, args)
+        data_info = wds.get_wds_dataset(wds_args, transform, True)
+        nb_train = args.num_samples_per_epoch
+        data_loader_train = DataLoaderWithLen(data_info.dataloader, data_info, data_info.dataloader.num_batches)
     data_loader_val = torch.utils.data.DataLoader(
         dataset_val, sampler=sampler_val,
         batch_size=int(1.5 * args.batch_size),
@@ -414,8 +483,10 @@ def main(args):
     start_time = time.time()
     max_accuracy = 0.0
     for epoch in range(args.start_epoch, args.epochs):
-        if args.distributed:
+        if args.distributed and args.data_set != "wds":
             data_loader_train.sampler.set_epoch(epoch)
+        if hasattr(data_loader_train, "set_epoch"):
+            data_loader_train.set_epoch(epoch)
 
         train_stats = train_one_epoch(
             model, criterion, data_loader_train,

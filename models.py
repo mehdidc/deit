@@ -91,6 +91,7 @@ def deit_small_patch16_224(pretrained=False, **kwargs):
 
 @register_model
 def deit_base_patch16_224(pretrained=False, **kwargs):
+    del kwargs['pretrained_cfg']
     model = VisionTransformer(
         patch_size=16, embed_dim=768, depth=12, num_heads=12, mlp_ratio=4, qkv_bias=True,
         norm_layer=partial(nn.LayerNorm, eps=1e-6), **kwargs)

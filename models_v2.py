@@ -320,6 +320,7 @@ def deit_medium_patch16_LS(pretrained=False, img_size=224, pretrained_21k = Fals
 
 @register_model
 def deit_base_patch16_LS(pretrained=False, img_size=224, pretrained_21k = False,  **kwargs):
+    del kwargs['pretrained_cfg']
     model = vit_models(
         img_size = img_size, patch_size=16, embed_dim=768, depth=12, num_heads=12, mlp_ratio=4, qkv_bias=True,
         norm_layer=partial(nn.LayerNorm, eps=1e-6),block_layers=Layer_scale_init_Block, **kwargs)
