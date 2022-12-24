@@ -198,8 +198,8 @@ def get_args_parser():
     parser.add_argument('--dist_url', default='env://', help='url used to set up distributed training')
     parser.add_argument('--resampled', type=str2bool, default=False)
     parser.add_argument('--num_samples_per_epoch', default=0, type=int)
-    parser.add_argument('--rename', default="image.jpg;image.png")
-    parser.add_argument('--fields', default="image,class.cls")
+    parser.add_argument('--rename_image', default="image.jpg;image.png")
+    parser.add_argument('--rename_label', default="class.pth")
     parser.add_argument('--nb_classes', default=1000, type=int,
                         help='number of the classification types')
     return parser
@@ -301,8 +301,8 @@ def main(args):
             train_num_samples = args.num_samples_per_epoch
             resampled = args.resampled
             seed = args.seed
-            rename = args.rename
-            fields = args.fields.split(",")
+            rename_image = args.rename_image
+            rename_label = args.rename_label
         args.num_batches = args.num_samples_per_epoch // (args.batch_size * wds_args.world_size)
         transform = build_transform(True, args)
         data_info = wds.get_wds_dataset(wds_args, transform, True)
@@ -318,6 +318,7 @@ def main(args):
 
     mixup_fn = None
     mixup_active = args.mixup > 0 or args.cutmix > 0. or args.cutmix_minmax is not None
+    print(args.mixup, args.cutmix, args.cutmix_minmax)
     if mixup_active:
         mixup_fn = Mixup(
             mixup_alpha=args.mixup, cutmix_alpha=args.cutmix, cutmix_minmax=args.cutmix_minmax,
