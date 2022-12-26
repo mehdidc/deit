@@ -126,6 +126,7 @@ def get_args_parser():
     parser.add_argument('--ThreeAugment', action='store_true') #3augment
     
     parser.add_argument('--src', action='store_true') #simple random crop
+    parser.add_argument('--data_label_type', type=str, default="multilabel") #simple random crop
     
     # * Random Erase params
     parser.add_argument('--reprob', type=float, default=0.25, metavar='PCT',
@@ -303,6 +304,7 @@ def main(args):
             seed = args.seed
             rename_image = args.rename_image
             rename_label = args.rename_label
+            data_label_type = args.data_label_type
         args.num_batches = args.num_samples_per_epoch // (args.batch_size * wds_args.world_size)
         transform = build_transform(True, args)
         data_info = wds.get_wds_dataset(wds_args, transform, True)
@@ -343,6 +345,7 @@ def main(args):
                 args.finetune, map_location='cpu', check_hash=True)
         else:
             checkpoint = torch.load(args.finetune, map_location='cpu')
+            print(f"Fine-tuning from epoch {checkpoint}")
 
         checkpoint_model = checkpoint['model']
         state_dict = model.state_dict()
@@ -459,7 +462,7 @@ def main(args):
     )
 
     output_dir = Path(args.output_dir)
-    if args.resume:
+    if args.resume and os.path.exists(args.resume):
         if args.resume.startswith('https'):
             checkpoint = torch.hub.load_state_dict_from_url(
                 args.resume, map_location='cpu', check_hash=True)
