@@ -258,10 +258,13 @@ def filter_image(sample):
     else:
         return True
 
-def preprocess_label(ids):
+def preprocess_label_multilabel(ids):
     data = torch.zeros(21841)
     data[ids] = 1
     return data
+
+def preprocess_label_single_label(x):
+    return x
 
 class ResampledShards2(IterableDataset):
     """An iterable dataset yielding a list of urls."""
@@ -357,11 +360,11 @@ def get_wds_dataset(args, preprocess_img, is_train, epoch=0, floor=False):
             # at this point, we have an iterator over the shards assigned to each worker
             wds.tarfile_to_samples(handler=log_and_continue),
         ])
+    preprocess_label = preprocess_label_multilabel if args.data_label_type == "multilabel" else preprocess_label_single_label
     pipeline.extend([
         # wds.select(filter_image),
         wds.decode("pilrgb", handler=log_and_continue),
         wds.rename(image=args.rename_image, label=args.rename_label),
-        # wds.map_dict(image=preprocess_img),
         wds.map_dict(image=preprocess_img, label=preprocess_label),
         wds.to_tuple("image", "label"),
         wds.batched(args.batch_size, partial=not is_train),
