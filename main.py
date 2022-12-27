@@ -3,6 +3,7 @@
 import argparse
 import datetime
 import numpy as np
+import os
 import time
 import torch
 import torch.backends.cudnn as cudnn
@@ -198,6 +199,7 @@ def get_args_parser():
                         help='number of distributed processes')
     parser.add_argument('--dist_url', default='env://', help='url used to set up distributed training')
     parser.add_argument('--resampled', type=str2bool, default=False)
+    parser.add_argument('--save_epoch_checkpoint', type=int, default=0)
     parser.add_argument('--num_samples_per_epoch', default=0, type=int)
     parser.add_argument('--rename_image', default="image.jpg;image.png")
     parser.add_argument('--rename_label', default="class.pth")
@@ -503,6 +505,8 @@ def main(args):
         lr_scheduler.step(epoch)
         if args.output_dir:
             checkpoint_paths = [output_dir / 'checkpoint.pth']
+            if args.save_epoch_checkpoint and (epoch % args.save_epoch_checkpoint) == 0:
+                checkpoint_paths.append(output_dir / f'checkpoint_epoch_{epoch:05d}.pth')
             for checkpoint_path in checkpoint_paths:
                 utils.save_on_master({
                     'model': model_without_ddp.state_dict(),
